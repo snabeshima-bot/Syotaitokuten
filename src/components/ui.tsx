@@ -22,8 +22,12 @@ export function Button({ variant = "primary", className, ...props }: ButtonProps
   );
 }
 
-export function Card({ className, children }: { className?: string; children: ReactNode }) {
-  return <div className={cx("rounded-xl border border-gray-200 bg-white p-5 shadow-sm", className)}>{children}</div>;
+export function Card({ className, children, id }: { className?: string; children: ReactNode; id?: string }) {
+  return (
+    <div id={id} className={cx("rounded-xl border border-gray-200 bg-white p-5 shadow-sm", className)}>
+      {children}
+    </div>
+  );
 }
 
 export function Field({

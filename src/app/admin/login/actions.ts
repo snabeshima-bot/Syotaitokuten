@@ -10,11 +10,11 @@ export async function login(_: string | null, formData: FormData): Promise<strin
     password: String(formData.get("password") ?? ""),
   });
   if (error) return "メールアドレスかパスワードが違います。";
-  redirect("/admin");
+  redirect("/admin/mfa");
 }
 
-export async function logout() {
+export async function logout(reason?: unknown) {
   const supabase = await createClient();
   await supabase.auth.signOut();
-  redirect("/admin/login");
+  redirect(reason === "timeout" ? "/admin/login?reason=timeout" : "/admin/login");
 }

@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Member, RewardTier, Shipment, Submission, SubmissionReward, SubmissionStatus } from "./types";
 import { rewardLabel } from "./events";
 import type { ShippingRow } from "./shipping";
+import { decryptPiiFields } from "./crypto";
 
 export type SubmissionWithRewards = Submission & {
   rewards: (SubmissionReward & { tier: RewardTier; member: Member | null })[];
@@ -30,7 +31,7 @@ export async function loadSubmissions(
       shipment: Shipment | Shipment[] | null;
     };
     return {
-      ...r,
+      ...decryptPiiFields(r),
       rewards: [...r.rewards].sort((a, b) => a.tier.min_count - b.tier.min_count || a.tier.sort_order - b.tier.sort_order),
       shipment: Array.isArray(r.shipment) ? (r.shipment[0] ?? null) : r.shipment,
     };

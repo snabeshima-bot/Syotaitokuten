@@ -32,4 +32,7 @@ export const env = {
   turnstileSecretKey: process.env.TURNSTILE_SECRET_KEY,
   cronSecret: process.env.CRON_SECRET,
   ipHashSalt: process.env.IP_HASH_SALT ?? "",
+  /** フォームの「個人情報の取り扱い」に出す運営者名と問い合わせ先 */
+  organizerName: process.env.ORGANIZER_NAME ?? "運営事務局",
+  privacyContact: process.env.PRIVACY_CONTACT ?? "",
 };

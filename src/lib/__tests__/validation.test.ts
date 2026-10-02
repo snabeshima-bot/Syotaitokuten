@@ -7,7 +7,7 @@ const tiers: RewardTier[] = [
   { id: "t3", event_id: "e", min_count: 3, name: "デコチェキ", description: "", requires_member: true, delivery: "ship", sort_order: 0 },
 ];
 const schema = buildSubmissionSchema(tiers, ["m1", "m2"]);
-const base = { ticket_number: "ａ－００１", nickname: " たろう ", email: "taro@example.com" };
+const base = { ticket_number: "ａ－００１", nickname: " たろう ", email: "taro@example.com", consent: true };
 
 describe("buildSubmissionSchema", () => {
   it("手渡しだけの人数なら送付先は不要", () => {
@@ -37,6 +37,11 @@ describe("buildSubmissionSchema", () => {
     expect(r.success).toBe(true);
     expect(r.data?.phone).toBe("090-1234-5678");
     expect(r.data?.postal_code).toBe("1600022");
+  });
+
+  it("同意がないと送信できない", () => {
+    const r = schema.safeParse({ ...base, consent: false, claimed_count: 1 });
+    expect(flattenErrors(r.error!)).toHaveProperty("consent");
   });
 
   it("段にない人数や公演にいないメンバーは拒否", () => {

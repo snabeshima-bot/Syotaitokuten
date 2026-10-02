@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { requireStaff } from "@/lib/auth";
+import { audit, requireStaff } from "@/lib/auth";
 import { shippingItems } from "@/lib/admin-data";
 import { formatPostalCode, formatReceiptNo } from "@/lib/normalize";
 import { loadShippingTargets } from "../targets";
@@ -10,8 +10,9 @@ const PER_SHEET = 12;
 export default async function PrintPage({ params, searchParams }: PageProps<"/admin/events/[id]/shipping/print">) {
   const { id } = await params;
   const { mode } = await searchParams;
-  const { supabase } = await requireStaff();
-  const targets = await loadShippingTargets(supabase, id);
+  const ctx = await requireStaff();
+  const targets = await loadShippingTargets(ctx.supabase, id);
+  await audit(ctx, mode === "labels" ? "shipping.print_labels" : "shipping.print_picking", "event", id, { count: targets.length });
   const sheets = Array.from({ length: Math.ceil(targets.length / PER_SHEET) }, (_, i) => targets.slice(i * PER_SHEET, (i + 1) * PER_SHEET));
 
   return (

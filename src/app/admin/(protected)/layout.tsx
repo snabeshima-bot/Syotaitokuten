@@ -1,11 +1,14 @@
 import Link from "next/link";
 import { requireStaff } from "@/lib/auth";
 import { logout } from "../login/actions";
+import { IdleLogout } from "../idle-logout";
+import { IDLE_TIMEOUT_MS } from "@/lib/supabase/proxy";
 
 export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
   const { staff } = await requireStaff();
   return (
     <div className="flex min-h-full flex-1 flex-col">
+      <IdleLogout timeoutMs={IDLE_TIMEOUT_MS} />
       <header className="no-print border-b border-gray-200 bg-white">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-5 gap-y-2 px-4 py-3">
           <Link href="/admin" className="font-bold text-brand-700">
@@ -14,6 +17,7 @@ export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
           <nav className="flex gap-4 text-sm text-gray-700">
             <Link href="/admin" className="hover:text-brand-700">公演</Link>
             <Link href="/admin/members" className="hover:text-brand-700">メンバー</Link>
+            <Link href="/admin/audit" className="hover:text-brand-700">操作ログ</Link>
           </nav>
           <form action={logout} className="ml-auto flex items-center gap-3 text-sm text-gray-500">
             <span>{staff.display_name || "スタッフ"}</span>

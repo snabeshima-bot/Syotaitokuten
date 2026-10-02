@@ -46,6 +46,7 @@ export function receiptMail(p: {
   count: number;
   items: string[];
   shipping: boolean;
+  editUrl: string;
 }): Mail {
   return {
     to: p.to,
@@ -57,6 +58,7 @@ export function receiptMail(p: {
       `■ 特典\n${p.items.map((i) => `・${i}`).join("\n")}\n\n` +
       `招待人数はスタッフが確認いたします。確認の結果、特典の内容が変わる場合があります。` +
       (p.shipping ? "\n発送が完了しましたら、改めてメールでお知らせいたします。" : "") +
+      `\n\n■ 希望メンバー・送付先の修正\n受付期間中は、こちらから修正できます（このリンクは他の人に教えないでください）。\n${p.editUrl}` +
       FOOTER,
   };
 }

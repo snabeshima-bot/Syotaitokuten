@@ -22,6 +22,7 @@ const baseSchema = z.object({
   postal_code: z.string().transform(normalizePostalCode).default(""),
   address1: text(200).default(""),
   address2: text(200).default(""),
+  consent: z.boolean().default(false),
 });
 
 export type SubmissionInput = z.input<typeof baseSchema>;
@@ -34,6 +35,9 @@ export type SubmissionData = z.output<typeof baseSchema>;
 export function buildSubmissionSchema(tiers: RewardTier[], memberIds: string[]) {
   const counts = new Set(tiers.map((t) => t.min_count));
   return baseSchema.superRefine((data, ctx) => {
+    if (!data.consent) {
+      ctx.addIssue({ code: "custom", path: ["consent"], message: "個人情報の取り扱いに同意してください" });
+    }
     if (!counts.has(data.claimed_count)) {
       ctx.addIssue({ code: "custom", path: ["claimed_count"], message: "招待した人数を選んでください" });
       return;

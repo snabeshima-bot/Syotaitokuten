@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { requireStaff } from "@/lib/auth";
+import { audit, requireStaff } from "@/lib/auth";
+import { maskAddress, maskEmail, maskName, maskPhone, maskPostal } from "@/lib/mask";
 import { loadEventBundle } from "@/lib/events";
 import { effectiveCount, loadSubmissions } from "@/lib/admin-data";
 import { Badge, Card, Field, Input, Select, Textarea } from "@/components/ui";
@@ -10,19 +11,24 @@ import { formatJst } from "@/lib/datetime";
 import { formatPostalCode, formatReceiptNo } from "@/lib/normalize";
 import { confirmCount, updateSubmission } from "../../submission-actions";
 
-export default async function SubmissionDetail({ params }: PageProps<"/admin/events/[id]/submissions/[sid]">) {
+export default async function SubmissionDetail({ params, searchParams }: PageProps<"/admin/events/[id]/submissions/[sid]">) {
   const { id, sid } = await params;
-  const { supabase } = await requireStaff();
+  const reveal = (await searchParams).reveal === "1";
+  const ctx = await requireStaff();
+  const { supabase } = ctx;
   const [bundle, [s]] = await Promise.all([loadEventBundle(supabase, { id }), loadSubmissions(supabase, id, { ids: [sid] })]);
   if (!bundle || !s) notFound();
+  // 個人情報を表示したことは操作ログに残す
+  if (reveal && !s.purged_at) await audit(ctx, "submission.reveal", "submission", s.id);
 
-  const { data: others } = s.email || s.phone
+  const dupFilters = [s.email_hash && `email_hash.eq.${s.email_hash}`, s.phone_hash && `phone_hash.eq.${s.phone_hash}`].filter(Boolean);
+  const { data: others } = dupFilters.length
     ? await supabase
         .from("submissions")
         .select("id, receipt_no, ticket_number, nickname")
         .eq("event_id", id)
         .neq("id", s.id)
-        .or([s.email ? `email.ilike.${s.email.replace(/[,()]/g, "")}` : "", s.phone ? `phone.eq.${s.phone.replace(/[,()]/g, "")}` : ""].filter(Boolean).join(","))
+        .or(dupFilters.join(","))
     : { data: [] };
 
   return (
@@ -131,25 +137,50 @@ export default async function SubmissionDetail({ params }: PageProps<"/admin/eve
               <Field label="ニックネーム">
                 <Input name="nickname" defaultValue={s.nickname} required />
               </Field>
-              <Field label="メールアドレス">
-                <Input name="email" type="email" defaultValue={s.email ?? ""} />
-              </Field>
-              <Field label="電話番号">
-                <Input name="phone" defaultValue={s.phone ?? ""} />
-              </Field>
-              <Field label="お名前（フルネーム）">
-                <Input name="full_name" defaultValue={s.full_name ?? ""} />
-              </Field>
-              <Field label="郵便番号">
-                <Input name="postal_code" defaultValue={formatPostalCode(s.postal_code)} />
-              </Field>
-              <Field label="住所">
-                <Input name="address1" defaultValue={s.address1 ?? ""} />
-              </Field>
-              <Field label="番地・建物名">
-                <Input name="address2" defaultValue={s.address2 ?? ""} />
-              </Field>
             </div>
+            {reveal ? (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <input type="hidden" name="pii" value="1" />
+                <Field label="メールアドレス">
+                  <Input name="email" type="email" defaultValue={s.email ?? ""} autoComplete="off" />
+                </Field>
+                <Field label="電話番号">
+                  <Input name="phone" defaultValue={s.phone ?? ""} autoComplete="off" />
+                </Field>
+                <Field label="お名前（フルネーム）">
+                  <Input name="full_name" defaultValue={s.full_name ?? ""} autoComplete="off" />
+                </Field>
+                <Field label="郵便番号">
+                  <Input name="postal_code" defaultValue={formatPostalCode(s.postal_code)} autoComplete="off" />
+                </Field>
+                <Field label="住所">
+                  <Input name="address1" defaultValue={s.address1 ?? ""} autoComplete="off" />
+                </Field>
+                <Field label="番地・建物名">
+                  <Input name="address2" defaultValue={s.address2 ?? ""} autoComplete="off" />
+                </Field>
+              </div>
+            ) : (
+              <div className="space-y-2 rounded-lg bg-gray-50 p-3 text-sm">
+                <dl className="grid grid-cols-[110px_1fr] gap-y-1">
+                  <dt className="text-gray-500">メール</dt>
+                  <dd>{maskEmail(s.email)}</dd>
+                  <dt className="text-gray-500">電話番号</dt>
+                  <dd>{maskPhone(s.phone)}</dd>
+                  <dt className="text-gray-500">お名前</dt>
+                  <dd>{maskName(s.full_name)}</dd>
+                  <dt className="text-gray-500">送付先</dt>
+                  <dd>
+                    {maskPostal(s.postal_code)} {maskAddress(s.address1)}
+                  </dd>
+                </dl>
+                {!s.purged_at && (
+                  <Link href={`?reveal=1`} className="inline-block rounded-lg border border-gray-300 bg-white px-3 py-2 font-semibold hover:bg-gray-50">
+                    個人情報を表示・編集する（操作ログに残ります）
+                  </Link>
+                )}
+              </div>
+            )}
             {s.rewards.some((r) => r.tier.requires_member) && (
               <div className="grid gap-4 sm:grid-cols-2">
                 {s.rewards

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { audit, requireStaff } from "@/lib/auth";
 import { normalizePhone, normalizePostalCode } from "@/lib/normalize";
+import { encryptPiiFields, piiHash } from "@/lib/crypto";
 import type { SubmissionStatus } from "@/lib/types";
 import type { ActionResult } from "../../actions";
 
@@ -71,16 +72,29 @@ export async function updateSubmission(_: ActionResult, fd: FormData): Promise<A
   });
   if (!parsed.success) return { ok: false, message: parsed.error.issues[0].message };
   const d = parsed.data;
+  // 個人情報の欄は「表示」したときだけフォームに出る。出していないときは触らない
+  const pii = fd.get("pii") === "1"
+    ? {
+        ...encryptPiiFields({
+          email: d.email,
+          full_name: d.full_name,
+          phone: d.phone,
+          postal_code: d.postal_code,
+          address1: d.address1,
+          address2: d.address2,
+        }),
+        email_hash: piiHash("email", d.email),
+        phone_hash: piiHash("phone", d.phone),
+      }
+    : {};
   const { error } = await ctx.supabase
     .from("submissions")
     .update({
-      ...d,
-      email: d.email || null,
-      full_name: d.full_name || null,
-      phone: d.phone || null,
-      postal_code: d.postal_code || null,
-      address1: d.address1 || null,
-      address2: d.address2 || null,
+      status: d.status,
+      nickname: d.nickname,
+      staff_note: d.staff_note,
+      duplicate_suspected: d.duplicate_suspected,
+      ...pii,
     })
     .eq("id", id)
     .eq("event_id", eventId);
@@ -97,7 +111,7 @@ export async function updateSubmission(_: ActionResult, fd: FormData): Promise<A
       .eq("submission_id", id);
     if (rErr) return { ok: false, message: rErr.message };
   }
-  await audit(ctx, "submission.update", "submission", id, { status: d.status });
+  await audit(ctx, "submission.update", "submission", id, { status: d.status, pii_changed: fd.get("pii") === "1" });
   revalidatePath(`/admin/events/${eventId}`, "layout");
   return { ok: true, message: "保存しました" };
 }

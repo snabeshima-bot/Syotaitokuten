@@ -9,6 +9,7 @@ import { buildSubmissionSchema, flattenErrors, pruneForCount, type SubmissionInp
 import { verifyTurnstile } from "@/lib/turnstile";
 import { receiptMail, sendMail } from "@/lib/mail";
 import { env } from "@/lib/env";
+import { encryptPii, newEditToken, piiHash } from "@/lib/crypto";
 
 export type SubmitResult =
   | { ok: true; receiptNo: number; items: string[]; shipping: boolean }
@@ -20,8 +21,15 @@ const DB_ERRORS: Record<string, string> = {
   member_required: "希望メンバーを選んでください。",
   address_required: "送付先を入力してください。",
   invalid_count: "招待した人数を選んでください。",
+  consent_required: "個人情報の取り扱いに同意してください。",
   rate_limited: "短時間に送信が続いたため、受付を一時的に止めています。しばらくしてからお試しください。",
 };
+
+/** 修正リンクの有効期限: 受付終了まで（未設定なら14日） */
+function editLinkExpiry(closesAt: string | null): Date {
+  const twoWeeks = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
+  return closesAt ? new Date(closesAt) : twoWeeks;
+}
 
 export async function submitInvitation(
   slug: string,
@@ -46,8 +54,27 @@ export async function submitInvitation(
   const data = pruneForCount(parsed.data, tiers);
   const ipHash = ip ? createHash("sha256").update(`${env.ipHashSalt}:${ip}`).digest("hex") : null;
 
+  const edit = newEditToken();
   const { data: rows, error } = await supabase.rpc("submit_invitation", {
-    p: { ...data, event_id: event.id, ip_hash: ipHash },
+    p: {
+      event_id: event.id,
+      ticket_number: data.ticket_number,
+      nickname: data.nickname,
+      claimed_count: data.claimed_count,
+      members: data.members,
+      consented: data.consent,
+      email: encryptPii(data.email),
+      email_hash: piiHash("email", data.email),
+      full_name: encryptPii(data.full_name),
+      phone: encryptPii(data.phone),
+      phone_hash: piiHash("phone", data.phone),
+      postal_code: encryptPii(data.postal_code),
+      address1: encryptPii(data.address1),
+      address2: encryptPii(data.address2),
+      ip_hash: ipHash,
+      edit_token_hash: edit.hash,
+      edit_token_expires_at: editLinkExpiry(event.closes_at).toISOString(),
+    },
   });
   if (error) {
     const message = DB_ERRORS[error.message];
@@ -70,6 +97,7 @@ export async function submitInvitation(
       count: data.claimed_count,
       items,
       shipping,
+      editUrl: `${env.appUrl}/${event.slug}/edit?token=${edit.token}`,
     }),
   );
 

@@ -1,5 +1,6 @@
 "use server";
 
+import { randomBytes } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
@@ -44,9 +45,15 @@ const eventSchema = z.object({
   retention_days: z.coerce.number().int().min(0),
 });
 
+/** URL名を空にしたときは推測されにくいランダムな名前にする（例: e-k3v9q2xa） */
+function randomSlug() {
+  const alphabet = "abcdefghijkmnpqrstuvwxyz23456789";
+  return `e-${[...randomBytes(8)].map((b) => alphabet[b % alphabet.length]).join("")}`;
+}
+
 function readEvent(fd: FormData) {
   return eventSchema.safeParse({
-    slug: str(fd, "slug"),
+    slug: str(fd, "slug").toLowerCase() || randomSlug(),
     title: str(fd, "title"),
     description: String(fd.get("description") ?? ""),
     event_date: str(fd, "event_date") || null,
@@ -149,40 +156,63 @@ const tierSchema = z.object({
   sort_order: z.coerce.number().int(),
 });
 
-export async function saveTier(_: ActionResult, fd: FormData): Promise<ActionResult> {
+// ---------- 段（特典）をまとめて保存 ----------
+
+export type TierDraft = {
+  id?: string;
+  min_count: number;
+  name: string;
+  description: string;
+  requires_member: boolean;
+  delivery: "ship" | "hand";
+};
+
+/** 表で編集した特典をまとめて保存する。並び順は表の順番。表から消した行は削除する */
+export async function saveTiers(eventId: string, drafts: TierDraft[]): Promise<ActionResult> {
   const ctx = await requireStaff();
-  const eventId = str(fd, "event_id");
-  const id = str(fd, "id");
-  const parsed = tierSchema.safeParse({
-    min_count: str(fd, "min_count"),
-    name: str(fd, "name"),
-    description: str(fd, "description"),
-    requires_member: fd.get("requires_member") === "on",
-    delivery: str(fd, "delivery") || "ship",
-    sort_order: str(fd, "sort_order") || "0",
-  });
-  if (!parsed.success) return { ok: false, message: parsed.error.issues[0].message };
-  const { error } = id
-    ? await ctx.supabase.from("reward_tiers").update(parsed.data).eq("id", id).eq("event_id", eventId)
-    : await ctx.supabase.from("reward_tiers").insert({ ...parsed.data, event_id: eventId });
-  if (error) return { ok: false, message: error.message };
-  await audit(ctx, id ? "tier.update" : "tier.create", "reward_tier", id || null, { event_id: eventId, ...parsed.data });
+  const parsed = z.array(tierSchema.omit({ sort_order: true }).extend({ id: z.string().optional() })).safeParse(drafts);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    return { ok: false, message: `${Number(issue.path[0]) + 1}行目: ${issue.message}` };
+  }
+  const rows = parsed.data;
+  if (rows.length === 0) return { ok: false, message: "特典を1つ以上登録してください" };
+
+  const { data: existing } = await ctx.supabase.from("reward_tiers").select("id").eq("event_id", eventId);
+  const keep = new Set(rows.map((r) => r.id).filter(Boolean));
+  const removed = (existing ?? []).map((r) => r.id).filter((id) => !keep.has(id));
+  if (removed.length) {
+    const { count } = await ctx.supabase
+      .from("submission_rewards")
+      .select("id", { count: "exact", head: true })
+      .in("tier_id", removed);
+    if (count) return { ok: false, message: "すでに回答で使われている特典は削除できません（名前の変更はできます）" };
+    const { error } = await ctx.supabase.from("reward_tiers").delete().in("id", removed).eq("event_id", eventId);
+    if (error) return { ok: false, message: error.message };
+  }
+  for (const [i, r] of rows.entries()) {
+    const { id, ...fields } = r;
+    const row = { ...fields, sort_order: i + 1 };
+    const { error } = id
+      ? await ctx.supabase.from("reward_tiers").update(row).eq("id", id).eq("event_id", eventId)
+      : await ctx.supabase.from("reward_tiers").insert({ ...row, event_id: eventId });
+    if (error) return { ok: false, message: error.message };
+  }
+  await audit(ctx, "tiers.save", "event", eventId, { count: rows.length, removed: removed.length });
   revalidatePath(`/admin/events/${eventId}`, "layout");
-  return { ok: true, message: "保存しました" };
+  return { ok: true, message: "特典を保存しました" };
 }
 
-export async function deleteTier(_: ActionResult, fd: FormData): Promise<ActionResult> {
+/** 受付の開始・終了をワンクリックで切り替える */
+export async function setEventStatus(_: ActionResult, fd: FormData): Promise<ActionResult> {
   const ctx = await requireStaff();
-  const eventId = str(fd, "event_id");
   const id = str(fd, "id");
-  const { count } = await ctx.supabase
-    .from("submission_rewards")
-    .select("id", { count: "exact", head: true })
-    .eq("tier_id", id);
-  if (count) return { ok: false, message: `この特典はすでに ${count} 件の回答で使われているため削除できません` };
-  const { error } = await ctx.supabase.from("reward_tiers").delete().eq("id", id).eq("event_id", eventId);
+  const status = z.enum(["draft", "open", "closed"]).safeParse(str(fd, "status"));
+  if (!status.success) return { ok: false, message: "状態が正しくありません" };
+  const { error } = await ctx.supabase.from("events").update({ status: status.data }).eq("id", id);
   if (error) return { ok: false, message: error.message };
-  await audit(ctx, "tier.delete", "reward_tier", id, { event_id: eventId });
-  revalidatePath(`/admin/events/${eventId}`, "layout");
-  return { ok: true, message: "削除しました" };
+  await audit(ctx, "event.update", "event", id, { status: status.data });
+  revalidatePath(`/admin/events/${id}`, "layout");
+  revalidatePath("/admin");
+  return { ok: true, message: status.data === "open" ? "受付を開始しました" : status.data === "closed" ? "受付を終了しました" : "準備中に戻しました" };
 }

@@ -59,6 +59,12 @@ export type Submission = {
   status: SubmissionStatus;
   duplicate_suspected: boolean;
   staff_note: string;
+  email_hash: string | null;
+  phone_hash: string | null;
+  consented_at: string | null;
+  edit_token_expires_at: string | null;
+  confirmed_at: string | null;
+  confirmed_by: string | null;
   purged_at: string | null;
   created_at: string;
   updated_at: string;

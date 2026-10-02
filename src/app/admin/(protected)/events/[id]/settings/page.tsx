@@ -6,8 +6,9 @@ import { env } from "@/lib/env";
 import { isoToJstInput } from "@/lib/datetime";
 import { Card, Field, Input, Select, Textarea } from "@/components/ui";
 import { ActionForm, SubmitButton } from "@/components/action-form";
-import { DELIVERY_LABELS, EVENT_STATUS_LABELS, type Member, type RewardTier } from "@/lib/types";
-import { deleteTier, saveTier, setEventMembers, updateEvent, uploadEventImage } from "../../../actions";
+import { EVENT_STATUS_LABELS, type Member } from "@/lib/types";
+import { setEventMembers, setEventStatus, updateEvent, uploadEventImage } from "../../../actions";
+import { TierEditor } from "./tier-editor";
 
 export default async function SettingsPage({ params }: PageProps<"/admin/events/[id]/settings">) {
   const { id } = await params;
@@ -20,9 +21,54 @@ export default async function SettingsPage({ params }: PageProps<"/admin/events/
   const url = `${env.appUrl}/${event.slug}`;
   const qrSvg = await QRCode.toString(url, { type: "svg", margin: 1, width: 180 });
 
+  const needsMembers = tiers.some((t) => t.requires_member);
+  const checks = [
+    { ok: tiers.length > 0, label: "特典（段）を登録する", href: "#tiers" },
+    { ok: !needsMembers || members.length > 0, label: "選べるメンバーを選ぶ", href: "#members" },
+    { ok: !!event.image_url, label: "告知画像を登録する（任意）", href: "#image", optional: true },
+    { ok: !!event.event_date, label: "公演日を入れる（個人情報の削除日の計算に使います）", href: "#basic" },
+  ];
+  const ready = checks.every((c) => c.ok || c.optional);
+
   return (
     <div className="grid gap-6 lg:grid-cols-2">
-      <Card className="space-y-4">
+      <Card className="space-y-3 lg:col-span-2">
+        <h2 className="font-bold">公開までのチェックリスト</h2>
+        <ul className="space-y-1 text-sm">
+          {checks.map((c) => (
+            <li key={c.label} className="flex items-center gap-2">
+              <span className={c.ok ? "text-emerald-600" : c.optional ? "text-gray-400" : "text-amber-600"} aria-hidden>
+                {c.ok ? "✓" : "○"}
+              </span>
+              <a href={c.href} className={c.ok ? "text-gray-500" : "font-semibold underline"}>
+                {c.label}
+              </a>
+            </li>
+          ))}
+        </ul>
+        <div className="flex flex-wrap items-center gap-2">
+          <a href={`/${event.slug}?preview=1`} target="_blank" rel="noreferrer" className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold hover:bg-gray-50">
+            お客様の画面をプレビュー
+          </a>
+          <ActionForm action={setEventStatus}>
+            <input type="hidden" name="id" value={event.id} />
+            {event.status === "open" ? (
+              <>
+                <input type="hidden" name="status" value="closed" />
+                <SubmitButton variant="secondary">受付を終了する</SubmitButton>
+              </>
+            ) : (
+              <>
+                <input type="hidden" name="status" value="open" />
+                <SubmitButton disabled={!ready}>受付を開始する</SubmitButton>
+              </>
+            )}
+          </ActionForm>
+          <span className="text-sm text-gray-600">いまの状態: {EVENT_STATUS_LABELS[event.status]}</span>
+        </div>
+      </Card>
+
+      <Card className="scroll-mt-4 space-y-4" id="basic">
         <h2 className="font-bold">基本情報</h2>
         <ActionForm action={updateEvent} className="space-y-4">
           <input type="hidden" name="id" value={event.id} />
@@ -77,7 +123,7 @@ export default async function SettingsPage({ params }: PageProps<"/admin/events/
           </div>
         </Card>
 
-        <Card className="space-y-3">
+        <Card className="scroll-mt-4 space-y-3" id="image">
           <h2 className="font-bold">告知画像</h2>
           {event.image_url && (
             // eslint-disable-next-line @next/next/no-img-element
@@ -97,7 +143,7 @@ export default async function SettingsPage({ params }: PageProps<"/admin/events/
           )}
         </Card>
 
-        <Card className="space-y-3">
+        <Card className="scroll-mt-4 space-y-3" id="members">
           <h2 className="font-bold">選べるメンバー</h2>
           <ActionForm action={setEventMembers} className="space-y-3">
             <input type="hidden" name="id" value={event.id} />
@@ -115,66 +161,15 @@ export default async function SettingsPage({ params }: PageProps<"/admin/events/
         </Card>
       </div>
 
-      <Card className="space-y-4 lg:col-span-2">
+      <Card className="scroll-mt-4 space-y-4 lg:col-span-2" id="tiers">
         <div>
           <h2 className="font-bold">特典（段）</h2>
           <p className="text-xs text-gray-500">
             招待した人数の選択肢は、ここで登録した「必要人数」になります。上の段に届くと下の段の特典もすべてもらえます。
           </p>
         </div>
-        <div className="space-y-3">
-          {tiers.map((t) => (
-            <TierForm key={t.id} eventId={event.id} tier={t} />
-          ))}
-          <TierForm eventId={event.id} tier={null} nextOrder={(tiers.at(-1)?.sort_order ?? 0) + 1} />
-        </div>
+        <TierEditor eventId={event.id} tiers={tiers} />
       </Card>
-    </div>
-  );
-}
-
-function TierForm({ eventId, tier, nextOrder = 0 }: { eventId: string; tier: RewardTier | null; nextOrder?: number }) {
-  return (
-    <div className={tier ? "rounded-lg border border-gray-200 p-3" : "rounded-lg border-2 border-dashed border-brand-200 p-3"}>
-      <ActionForm action={saveTier}>
-        <input type="hidden" name="event_id" value={eventId} />
-        <input type="hidden" name="id" value={tier?.id ?? ""} />
-        <div className="grid gap-2 md:grid-cols-[90px_1fr_1fr_130px_120px_70px_auto] md:items-end">
-          <Field label="必要人数">
-            <Input name="min_count" type="number" min={1} defaultValue={tier?.min_count} required />
-          </Field>
-          <Field label="特典名">
-            <Input name="name" defaultValue={tier?.name} required placeholder={tier ? "" : "新しい特典"} />
-          </Field>
-          <Field label="説明">
-            <Input name="description" defaultValue={tier?.description} />
-          </Field>
-          <Field label="受け渡し">
-            <Select name="delivery" defaultValue={tier?.delivery ?? "ship"}>
-              {Object.entries(DELIVERY_LABELS).map(([v, l]) => (
-                <option key={v} value={v}>
-                  {l}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <label className="flex items-center gap-2 pb-3 text-sm">
-            <input type="checkbox" name="requires_member" defaultChecked={tier?.requires_member ?? true} />
-            メンバーを選ぶ
-          </label>
-          <Field label="並び順">
-            <Input name="sort_order" type="number" defaultValue={tier?.sort_order ?? nextOrder} />
-          </Field>
-          <SubmitButton variant={tier ? "secondary" : "primary"}>{tier ? "保存" : "追加"}</SubmitButton>
-        </div>
-      </ActionForm>
-      {tier && (
-        <ActionForm action={deleteTier} confirm={`「${tier.name}」を削除しますか？`} className="mt-1">
-          <input type="hidden" name="event_id" value={eventId} />
-          <input type="hidden" name="id" value={tier.id} />
-          <button className="text-xs text-red-600 hover:underline">削除</button>
-        </ActionForm>
-      )}
     </div>
   );
 }

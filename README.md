@@ -3,8 +3,15 @@
 招待チケットで人を呼んでくれたお客様（招待者）から、特典の送付先を集めて発送まで管理するシステムです。
 公演ごとに作っていた Google フォーム（人数で分岐するセクション形式）の置き換えです。
 
-- **公開フォーム** `/{公演のURL名}`: スマホ向けのステップ形式。招待者情報 → 招待した人数 → 特典ごとの希望メンバー → 送付先 → 確認 → 受付番号の表示
-- **管理画面** `/admin`: 公演・特典（段）・メンバーの設定、QRコード、回答一覧と人数確認、集計、発送（CSV・宛名ラベル・ピッキングリスト・追跡番号の取り込み・発送完了メール）
+- **公開フォーム** `/{公演のURL名}`: スマホ向けのステップ形式。招待者情報 → 招待した人数 → 特典ごとの希望メンバー → 送付先 → 確認（個人情報の取り扱いに同意）→ 受付番号とQRの表示
+  - 入力途中の内容はそのタブの中だけに保持（再読み込みしても続きから。タブを閉じると消える）
+  - 郵便番号から住所を自動入力、電話番号は自動でハイフン、メールのよくある打ち間違い（gmial.com など）は候補を表示
+  - 受付完了メールの修正リンク `/{URL名}/edit?token=…` から、受付期間中は希望メンバーと送付先を直せる（人数・チケット番号は直せない。発送準備に入ると直せなくなる）
+- **管理画面** `/admin`（2段階認証が必須）
+  - **当日受付**: スタッフのスマホで、お客様の完了画面のQRを読み取るか受付番号を入れて、ワンタップで人数を確定。氏名・住所は出ない
+  - **回答 / 集計 / 発送**: 回答一覧と人数確認、特典×メンバーの必要数、発送（CSV・宛名ラベル・ピッキングリスト・追跡番号の取り込み・発送完了メール）
+  - **設定**: 公開までのチェックリスト、お客様画面のプレビュー、受付開始/終了のボタン、特典（段）を表でまとめて編集（並び替え・追加・削除）、メンバー、告知画像、QRコード
+  - **操作ログ**: 個人情報の表示・CSV出力・印刷などを誰がいつしたか
 
 ## 特典のしくみ
 
@@ -28,10 +35,10 @@
 
 ## 当日と発送の流れ
 
-1. 管理画面で公演を作り（前の公演の特典とメンバーを複製できます）、特典・告知画像を設定して状態を「受付中」にする
+1. 管理画面で公演を作り（前の公演の特典とメンバーを複製できます。URL名は空欄なら自動）、「設定」のチェックリストに沿って特典・告知画像を設定し、プレビューで確認して「受付を開始する」
 2. 「設定」タブの QR コード（PNG）を印刷して会場で案内する
-3. お客様が入力 → 完了画面の受付番号をスタッフに見せる
-4. スタッフが「回答」から受付番号を開き、招待人数を確認して「確定する」
+3. お客様が入力 → 完了画面（受付番号とQR）をスタッフに見せる
+4. スタッフが「当日受付」でQRを読み取り（または受付番号を入力）、「申告どおり確定」か人数を直して確定
 5. 「集計」で特典×メンバーの必要数を確認して制作する
 6. 「発送」タブで
    1. 発送対象を「発送準備」にする
@@ -41,6 +48,26 @@
 
 公演日から「個人情報の保存期間」（初期値90日）が過ぎると、送付先・電話・メールは毎日の定期処理で自動削除されます。
 
+## セキュリティ
+
+| 対策 | 内容 |
+| --- | --- |
+| 暗号化 | 氏名・電話・郵便番号・住所・メールは、サーバーで AES-256-GCM で暗号化してから DB に保存（鍵 `PII_ENCRYPTION_KEY` は DB とは別に環境変数で管理）。重複チェックは別の鍵 `PII_HASH_KEY` の HMAC で行う |
+| 2段階認証 | 管理画面は パスワード＋認証アプリ（TOTP）が必須。DB の RLS も 2段階認証済み（aal2）のセッションしか通さない |
+| アカウント | 一般の新規登録は無効。スタッフは `npm run staff:create` でだけ作る |
+| 自動ログアウト | 30分操作がなければログアウト（サーバー側と画面側の両方） |
+| 画面での伏せ字 | 回答詳細では個人情報を伏せ字で出し、「表示」を押したときだけ見せる。表示は操作ログに残る。当日受付にはニックネームしか出ない |
+| 操作ログ | 個人情報の表示・CSV出力・ラベル印刷・人数確定・状態変更などを記録（追記のみ。画面から消せない） |
+| 公開フォーム | ブラウザから DB に直接アクセスさせない。送信はサーバー経由で、Turnstile と送信回数制限（同じ IP から10分に5件まで）をかける |
+| 修正リンク | 推測できないランダムなトークン（DB にはハッシュだけ保存）。受付終了か発送準備で使えなくなる |
+| 同意 | 利用目的・保存期間・問い合わせ先をフォームに表示し、同意を必須にして日時を保存 |
+| 削除 | 公演日から保存期間（初期値90日）を過ぎると、送付先・連絡先・ハッシュ・修正トークンを毎日自動削除 |
+| HTTP | CSP・HSTS・X-Frame-Options などを設定。管理画面と修正ページはキャッシュさせず、検索エンジンにも載せない |
+
+**暗号化鍵の扱い**: `PII_ENCRYPTION_KEY` を失うと保存済みの個人情報は読めなくなります。作ったらパスワード管理ツールなどに控え、変えないでください。漏れた疑いがある場合は、公演ごとの受付を止めてから相談してください（鍵の入れ替えは今のところ未対応です）。
+
+**本番の Supabase で必ず設定すること**: Authentication → Sign In / Providers で「Allow new users to sign up」をオフ、Authentication → Multi-Factor で TOTP を有効にする。
+
 ## 構成
 
 - Next.js 16（App Router）/ TypeScript / Tailwind CSS
@@ -49,12 +76,12 @@
 - Vercel（ホスティング・Cron）/ Resend（メール）/ Cloudflare Turnstile（ボット対策）/ zipcloud（郵便番号検索）
 
 ```
-supabase/migrations/   テーブル・RLS・DB関数（submit_invitation, set_confirmed_count, purge_personal_data）
+supabase/migrations/   テーブル・RLS・DB関数（submit_invitation, update_invitation_by_token, set_confirmed_count, purge_personal_data）
 supabase/seed.sql      開発用データ（SCRAMBLE SMILE のメンバーと 2nd SMILE の特典）
-src/app/[slug]/        公開フォーム
+src/app/[slug]/        公開フォーム（edit/ は修正リンク）
 src/app/admin/         管理画面
 src/app/api/           郵便番号検索・個人情報削除の Cron
-src/lib/               特典の計算・入力チェック・CSV・メールなど
+src/lib/               特典の計算・入力チェック・暗号化（crypto.ts）・伏せ字・CSV・メールなど
 db-tests/              素の Postgres で動く DB テスト
 e2e/run.mjs            Playwright の E2E
 ```
@@ -65,8 +92,10 @@ e2e/run.mjs            Playwright の E2E
 npm install
 npx supabase start          # ローカルの Supabase（Docker が必要）。migrations と seed.sql が入る
 cp .env.example .env.local  # `npx supabase status` の URL / Publishable key / Secret key を書く
+#   PII_ENCRYPTION_KEY と PII_HASH_KEY は `openssl rand -base64 32` で別々に作る
 npm run staff:create -- staff@example.com password1234 "鍋島"
 npm run dev                 # http://localhost:3000/2nd-smile と http://localhost:3000/admin
+                            # 初回ログイン時に認証アプリの登録画面が出ます
 ```
 
 テスト:
@@ -74,7 +103,7 @@ npm run dev                 # http://localhost:3000/2nd-smile と http://localho
 ```bash
 npm test            # ユニットテスト（特典の計算・入力チェック・CSV）
 npm run test:db     # DB テスト（ローカルの Postgres。DATABASE_URL で接続先を変えられる）
-npm run test:e2e    # E2E（supabase start と npm run dev が動いている状態で）
+npm run test:e2e    # E2E（supabase start と npm run build && npm start が動いている状態で。スタッフは認証アプリ未登録にしておく）
 npm run typecheck && npm run lint
 ```
 
@@ -82,11 +111,12 @@ npm run typecheck && npm run lint
 
 1. Supabase のプロジェクトを作り、`npx supabase link` → `npx supabase db push` でマイグレーションを流す
    （seed.sql は本番には流さず、メンバーと公演は管理画面から登録する）
-2. Vercel にこのリポジトリをつなぎ、`.env.example` の環境変数を設定する
+2. Vercel にこのリポジトリをつなぎ、`.env.example` の環境変数を設定する（暗号化鍵は Sensitive にする）
    - `CRON_SECRET` を設定すると、`vercel.json` の Cron（毎日 3:00 JST）が個人情報の削除を実行します
 3. Resend で送信元ドメインを認証し、`RESEND_API_KEY` と `MAIL_FROM` を設定する
 4. Cloudflare Turnstile のサイトを作り、2つのキーを設定する
-5. `npm run staff:create` でスタッフのアカウントを作る
+5. Supabase で新規登録をオフ・TOTP を有効にする（上の「セキュリティ」参照）
+6. `npm run staff:create` でスタッフのアカウントを作る
 
 ## 未対応・要確認
 

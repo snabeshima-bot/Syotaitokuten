@@ -45,8 +45,8 @@ export default async function AdminHome() {
               <Field label="公演名" required htmlFor="title">
                 <Input id="title" name="title" required placeholder="SCRAMBLE SMILE 2nd SMILE 招待特典" />
               </Field>
-              <Field label="URL名" required hint="例: 2nd-smile → https://…/2nd-smile" htmlFor="slug">
-                <Input id="slug" name="slug" required pattern="[a-z0-9][a-z0-9\-]{1,62}" />
+              <Field label="URL名（任意）" hint="空欄なら推測されにくい名前を自動で付けます。例: 2nd-smile → https://…/2nd-smile" htmlFor="slug">
+                <Input id="slug" name="slug" pattern="[a-z0-9][a-z0-9\-]{1,62}" />
               </Field>
               <Field label="公演日" htmlFor="event_date">
                 <Input id="event_date" name="event_date" type="date" />
