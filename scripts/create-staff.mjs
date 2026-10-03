@@ -1,4 +1,5 @@
-// スタッフのアカウントを作る: node --env-file=.env.local scripts/create-staff.mjs <email> <password> [表示名]
+// ローカル開発用: パスワードでログインするスタッフを作る（本番は会社の Google アカウントで自動登録）
+// node --env-file=.env.local scripts/create-staff.mjs <email> <password> [表示名]  ※ SUPABASE_SECRET_KEY が必要
 import { createClient } from "@supabase/supabase-js";
 
 const [email, password, displayName = ""] = process.argv.slice(2);

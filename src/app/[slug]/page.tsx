@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { createPublicClient } from "@/lib/supabase/public";
+import { createClient } from "@/lib/supabase/server";
 import { isAccepting, loadEventBundle } from "@/lib/events";
 import { isStaffSession } from "@/lib/auth";
 import { env } from "@/lib/env";
@@ -9,7 +10,7 @@ import { InvitationForm } from "./invitation-form";
 export const dynamic = "force-dynamic";
 
 async function load(slug: string) {
-  return loadEventBundle(createAdminClient(), { slug });
+  return loadEventBundle(createPublicClient(), { slug });
 }
 
 export async function generateMetadata({ params }: PageProps<"/[slug]">): Promise<Metadata> {
@@ -20,11 +21,12 @@ export async function generateMetadata({ params }: PageProps<"/[slug]">): Promis
 export default async function EventPage({ params, searchParams }: PageProps<"/[slug]">) {
   const { slug } = await params;
   const { preview } = await searchParams;
-  const bundle = await load(slug);
+  // ?preview=1 はログイン済みのスタッフだけ。準備中・受付期間外でもフォームを確認できる（送信は不可）
+  const isPreview = preview === "1" && (await isStaffSession());
+  // 準備中の公演は公開用のクライアントからは見えないので、プレビューはスタッフのセッションで読む
+  const bundle = isPreview ? await loadEventBundle(await createClient(), { slug }) : await load(slug);
   if (!bundle) notFound();
   const { event, tiers, members } = bundle;
-  // ?preview=1 は2段階認証済みのスタッフだけ。準備中・受付期間外でもフォームを確認できる（送信は不可）
-  const isPreview = preview === "1" && (await isStaffSession());
   if (event.status === "draft" && !isPreview) notFound();
 
   return (

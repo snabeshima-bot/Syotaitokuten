@@ -1,7 +1,8 @@
 "use server";
 
 import { z } from "zod";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { createPublicClient } from "@/lib/supabase/public";
+import { env } from "@/lib/env";
 import { encryptPii, hashEditToken, piiHash } from "@/lib/crypto";
 import { normalizePhone, normalizePostalCode } from "@/lib/normalize";
 import { flattenErrors } from "@/lib/validation";
@@ -38,7 +39,8 @@ export async function updateInvitation(token: string, needsAddress: boolean, inp
   const parsed = schema(needsAddress).safeParse(input);
   if (!parsed.success) return { ok: false, message: "入力内容を確認してください。", errors: flattenErrors(parsed.error) };
   const d = parsed.data;
-  const { error } = await createAdminClient().rpc("update_invitation_by_token", {
+  const { error } = await createPublicClient().rpc("public_update_invitation_by_token", {
+    p_key: env.appServerKey,
     p: {
       edit_token_hash: hashEditToken(token),
       members: d.members,

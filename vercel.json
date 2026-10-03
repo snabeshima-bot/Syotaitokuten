@@ -1,4 +1,1 @@
-{
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-  "crons": [{ "path": "/api/cron/purge", "schedule": "0 18 * * *" }]
-}
+{ "$schema": "https://openapi.vercel.sh/vercel.json" }

@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { isStrongAuth } from "@/lib/auth";
 import { logout } from "../login/actions";
 import { MfaForm } from "./mfa-form";
 
@@ -7,7 +8,7 @@ export default async function MfaPage() {
   const supabase = await createClient();
   const { data: claims } = await supabase.auth.getClaims();
   if (!claims?.claims) redirect("/admin/login");
-  if (claims.claims.aal === "aal2") redirect("/admin");
+  if (isStrongAuth(claims.claims as Parameters<typeof isStrongAuth>[0])) redirect("/admin");
   const { data: factors } = await supabase.auth.mfa.listFactors();
   const verified = factors?.totp.find((f) => f.status === "verified");
 

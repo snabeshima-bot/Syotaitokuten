@@ -4,7 +4,7 @@ import { NextResponse, type NextRequest } from "next/server";
 /** この時間操作がなければ自動でログアウトする */
 export const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 const SEEN_COOKIE = "admin_last_seen";
-const PUBLIC_PATHS = ["/admin/login"];
+const PUBLIC_PATHS = ["/admin/login", "/admin/auth/callback"];
 
 /**
  * 管理画面へのリクエストごとに

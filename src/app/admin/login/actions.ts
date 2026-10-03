@@ -2,6 +2,24 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { env } from "@/lib/env";
+
+/** Google でログイン。社内ドメインのアカウントは初回ログイン時に自動でスタッフになる */
+export async function loginWithGoogle() {
+  const supabase = await createClient();
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: "google",
+    options: {
+      redirectTo: `${env.appUrl}/admin/auth/callback`,
+      queryParams: {
+        prompt: "select_account",
+        ...(env.staffGoogleDomain ? { hd: env.staffGoogleDomain } : {}),
+      },
+    },
+  });
+  if (error || !data.url) redirect("/admin/login?error=oauth");
+  redirect(data.url);
+}
 
 export async function login(_: string | null, formData: FormData): Promise<string | null> {
   const supabase = await createClient();

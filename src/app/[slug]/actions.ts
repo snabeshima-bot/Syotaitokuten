@@ -2,7 +2,7 @@
 
 import { createHash } from "node:crypto";
 import { headers } from "next/headers";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { createPublicClient } from "@/lib/supabase/public";
 import { isAccepting, loadEventBundle, rewardLabel } from "@/lib/events";
 import { eligibleTiers, needsShipping } from "@/lib/rewards";
 import { buildSubmissionSchema, flattenErrors, pruneForCount, type SubmissionInput } from "@/lib/validation";
@@ -35,7 +35,7 @@ export async function submitInvitation(
   slug: string,
   input: SubmissionInput & { turnstile_token?: string },
 ): Promise<SubmitResult> {
-  const supabase = createAdminClient();
+  const supabase = createPublicClient();
   const bundle = await loadEventBundle(supabase, { slug });
   if (!bundle || bundle.event.status === "draft") return { ok: false, message: "公演が見つかりません。" };
   const { event, tiers, members } = bundle;
@@ -55,7 +55,8 @@ export async function submitInvitation(
   const ipHash = ip ? createHash("sha256").update(`${env.ipHashSalt}:${ip}`).digest("hex") : null;
 
   const edit = newEditToken();
-  const { data: rows, error } = await supabase.rpc("submit_invitation", {
+  const { data: rows, error } = await supabase.rpc("public_submit_invitation", {
+    p_key: env.appServerKey,
     p: {
       event_id: event.id,
       ticket_number: data.ticket_number,

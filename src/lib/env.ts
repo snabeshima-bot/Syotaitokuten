@@ -13,9 +13,12 @@ export const env = {
       process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
     );
   },
-  get supabaseSecretKey() {
-    return required("SUPABASE_SECRET_KEY", process.env.SUPABASE_SECRET_KEY);
+  /** 公開フォームの送信・修正で DB の関数に渡すキー（DB 側には sha256 で保存） */
+  get appServerKey() {
+    return required("APP_SERVER_KEY", process.env.APP_SERVER_KEY);
   },
+  /** Google ログインで候補に出すドメイン（Google の hd パラメータ）。スタッフにするかは DB の staff_email_domains で決まる */
+  staffGoogleDomain: process.env.STAFF_GOOGLE_DOMAIN ?? "",
   /** 公開URL（QRコードやメール内リンクに使う）。未設定なら Vercel の本番URL */
   get appUrl() {
     const url =
@@ -30,7 +33,6 @@ export const env = {
   mailReplyTo: process.env.MAIL_REPLY_TO,
   turnstileSiteKey: process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY,
   turnstileSecretKey: process.env.TURNSTILE_SECRET_KEY,
-  cronSecret: process.env.CRON_SECRET,
   ipHashSalt: process.env.IP_HASH_SALT ?? "",
   /** フォームの「個人情報の取り扱い」に出す運営者名と問い合わせ先 */
   organizerName: process.env.ORGANIZER_NAME ?? "運営事務局",

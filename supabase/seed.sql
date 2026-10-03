@@ -26,3 +26,8 @@ insert into public.reward_tiers (id, event_id, min_count, name, description, req
   ('00000000-0000-4000-8000-0000000000a5', '00000000-0000-4000-8000-0000000000e1', 5, 'ぜんぶ君色だよ♡ボイスチェキ', '推しメンのボイスつきチェキ', true, 'ship', 3),
   ('00000000-0000-4000-8000-0000000000aa', '00000000-0000-4000-8000-0000000000e1', 10, '推しメンの未公開2nd SMILE ライブポスター', 'A3サイズ/サイン/宛名', true, 'ship', 4)
 on conflict (id) do nothing;
+
+-- ローカル開発用のサーバーキー（.env.local の APP_SERVER_KEY=local-dev-server-key と対応）。本番では別の値を入れる
+insert into app_private.server_keys (name, key_hash)
+values ('app', encode(sha256(convert_to('local-dev-server-key', 'UTF8')), 'hex'))
+on conflict (name) do update set key_hash = excluded.key_hash;

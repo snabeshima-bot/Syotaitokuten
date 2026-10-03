@@ -125,9 +125,11 @@ try {
   admin.on("dialog", (d) => d.accept());
   await admin.goto(`${BASE}/admin`);
   await admin.waitForURL(/\/admin\/login/);
+  await admin.getByRole("button", { name: "Google でログイン" }).waitFor();
+  await admin.getByText("メールアドレスとパスワードでログイン").click();
   await admin.getByLabel("メールアドレス").fill(EMAIL);
   await admin.getByLabel("パスワード").fill(PASSWORD);
-  await admin.getByRole("button", { name: "ログイン" }).click();
+  await admin.getByRole("button", { name: "ログイン", exact: true }).click();
   await admin.waitForURL(/\/admin\/mfa/);
   // 2段階認証が済むまで管理画面には入れない
   await admin.goto(`${BASE}/admin`);

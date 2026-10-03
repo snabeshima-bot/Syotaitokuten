@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { createPublicClient } from "@/lib/supabase/public";
+import { env } from "@/lib/env";
 import { decryptPiiFields, hashEditToken } from "@/lib/crypto";
 import { loadEventBundle } from "@/lib/events";
 import { formatPostalCode, formatReceiptNo } from "@/lib/normalize";
@@ -22,14 +23,17 @@ export default async function EditPage({ params, searchParams }: PageProps<"/[sl
   const { token } = await searchParams;
   if (typeof token !== "string" || token.length < 40) return <Message>このリンクは無効です。</Message>;
 
-  const supabase = createAdminClient();
+  const supabase = createPublicClient();
   const bundle = await loadEventBundle(supabase, { slug });
-  const { data } = await supabase
-    .from("submissions")
-    .select("*, rewards:submission_rewards(id, tier_id, member_id)")
-    .eq("edit_token_hash", hashEditToken(token))
-    .maybeSingle();
-  const row = data as (Submission & { rewards: { id: string; tier_id: string; member_id: string | null }[] }) | null;
+  const { data } = await supabase.rpc("public_get_invitation_by_token", {
+    p_key: env.appServerKey,
+    p_token_hash: hashEditToken(token),
+  });
+  const row = data as
+    | (Pick<Submission, "id" | "event_id" | "receipt_no" | "nickname" | "status" | "purged_at" | "edit_token_expires_at" | "email" | "full_name" | "phone" | "postal_code" | "address1" | "address2"> & {
+        rewards: { id: string; tier_id: string; member_id: string | null }[];
+      })
+    | null;
   if (!bundle || !row || row.event_id !== bundle.event.id || row.purged_at || !row.edit_token_expires_at || new Date(row.edit_token_expires_at) < new Date()) {
     return <Message>このリンクは無効か、有効期限が切れています。</Message>;
   }

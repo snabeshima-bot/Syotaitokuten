@@ -7,7 +7,7 @@
   - 入力途中の内容はそのタブの中だけに保持（再読み込みしても続きから。タブを閉じると消える）
   - 郵便番号から住所を自動入力、電話番号は自動でハイフン、メールのよくある打ち間違い（gmial.com など）は候補を表示
   - 受付完了メールの修正リンク `/{URL名}/edit?token=…` から、受付期間中は希望メンバーと送付先を直せる（人数・チケット番号は直せない。発送準備に入ると直せなくなる）
-- **管理画面** `/admin`（2段階認証が必須）
+- **管理画面** `/admin`（会社の Google アカウントでログイン。@focpro.co.jp は初回ログインで自動的にスタッフになる）
   - **当日受付**: スタッフのスマホで、お客様の完了画面のQRを読み取るか受付番号を入れて、ワンタップで人数を確定。氏名・住所は出ない
   - **回答 / 集計 / 発送**: 回答一覧と人数確認、特典×メンバーの必要数、発送（CSV・宛名ラベル・ピッキングリスト・追跡番号の取り込み・発送完了メール）
   - **設定**: 公開までのチェックリスト、お客様画面のプレビュー、受付開始/終了のボタン、特典（段）を表でまとめて編集（並び替え・追加・削除）、メンバー、告知画像、QRコード
@@ -53,34 +53,35 @@
 | 対策 | 内容 |
 | --- | --- |
 | 暗号化 | 氏名・電話・郵便番号・住所・メールは、サーバーで AES-256-GCM で暗号化してから DB に保存（鍵 `PII_ENCRYPTION_KEY` は DB とは別に環境変数で管理）。重複チェックは別の鍵 `PII_HASH_KEY` の HMAC で行う |
-| 2段階認証 | 管理画面は パスワード＋認証アプリ（TOTP）が必須。DB の RLS も 2段階認証済み（aal2）のセッションしか通さない |
-| アカウント | 一般の新規登録は無効。スタッフは `npm run staff:create` でだけ作る |
+| ログイン | 管理画面は会社の Google アカウントでログイン。`staff_email_domains`（初期値 focpro.co.jp）のドメインで Google が確認したアドレスだけが自動でスタッフになる。ほかのアカウントはログインしても何も見えない。パスワードでのログインも残してあり、その場合は認証アプリ（TOTP）の2段階認証が必須。DB の RLS も「Google ログインか2段階認証済み」のスタッフしか通さない |
+| 秘密鍵を持たない | アプリは Supabase の service_role 鍵を持たない。公開フォームは publishable key で、公開中の公演情報の読み取りと、サーバーキー（`APP_SERVER_KEY`。DB にはハッシュだけ）を確認する送信・修正用の関数しか使えない |
 | 自動ログアウト | 30分操作がなければログアウト（サーバー側と画面側の両方） |
 | 画面での伏せ字 | 回答詳細では個人情報を伏せ字で出し、「表示」を押したときだけ見せる。表示は操作ログに残る。当日受付にはニックネームしか出ない |
 | 操作ログ | 個人情報の表示・CSV出力・ラベル印刷・人数確定・状態変更などを記録（追記のみ。画面から消せない） |
-| 公開フォーム | ブラウザから DB に直接アクセスさせない。送信はサーバー経由で、Turnstile と送信回数制限（同じ IP から10分に5件まで）をかける |
+| 公開フォーム | 送信はサーバー経由（サーバーキーが必要）で、Turnstile と送信回数制限（同じ IP から10分に5件まで）をかける |
 | 修正リンク | 推測できないランダムなトークン（DB にはハッシュだけ保存）。受付終了か発送準備で使えなくなる |
 | 同意 | 利用目的・保存期間・問い合わせ先をフォームに表示し、同意を必須にして日時を保存 |
-| 削除 | 公演日から保存期間（初期値90日）を過ぎると、送付先・連絡先・ハッシュ・修正トークンを毎日自動削除 |
+| 削除 | 公演日から保存期間（初期値90日）を過ぎると、送付先・連絡先・ハッシュ・修正トークンを DB の定期実行（pg_cron、毎日 3:00 JST）で自動削除し、操作ログに残す |
 | HTTP | CSP・HSTS・X-Frame-Options などを設定。管理画面と修正ページはキャッシュさせず、検索エンジンにも載せない |
 
 **暗号化鍵の扱い**: `PII_ENCRYPTION_KEY` を失うと保存済みの個人情報は読めなくなります。作ったらパスワード管理ツールなどに控え、変えないでください。漏れた疑いがある場合は、公演ごとの受付を止めてから相談してください（鍵の入れ替えは今のところ未対応です）。
 
-**本番の Supabase で必ず設定すること**: Authentication → Sign In / Providers で「Allow new users to sign up」をオフ、Authentication → Multi-Factor で TOTP を有効にする。
+**スタッフにするドメインの追加**: Supabase の SQL Editor で `insert into staff_email_domains (domain) values ('example.co.jp');`。ドメイン以外の人を個別に追加する場合は、その人が一度 Google でログインしたあと `insert into staff (user_id, display_name) select id, email from auth.users where email = '…';`。外す場合は `delete from staff where user_id = …`。
 
 ## 構成
 
 - Next.js 16（App Router）/ TypeScript / Tailwind CSS
 - Supabase（Postgres・Auth・Storage）。RLS で、データの閲覧と更新は `staff` に登録したユーザーだけに限定
-  - 公開フォームはブラウザから DB に触らず、サーバー側から `submit_invitation` 関数を呼んで1トランザクションで登録
-- Vercel（ホスティング・Cron）/ Resend（メール）/ Cloudflare Turnstile（ボット対策）/ zipcloud（郵便番号検索）
+  - 公開フォームはサーバー側から `public_submit_invitation` 関数（サーバーキー必須）を呼んで1トランザクションで登録
+  - 個人情報の自動削除は pg_cron
+- Vercel（ホスティング）/ Resend（メール）/ Cloudflare Turnstile（ボット対策）/ zipcloud（郵便番号検索）
 
 ```
-supabase/migrations/   テーブル・RLS・DB関数（submit_invitation, update_invitation_by_token, set_confirmed_count, purge_personal_data）
+supabase/migrations/   テーブル・RLS・DB関数（public_submit_invitation, public_*_invitation_by_token, set_confirmed_count, purge_personal_data, スタッフ自動登録のトリガー）
 supabase/seed.sql      開発用データ（SCRAMBLE SMILE のメンバーと 2nd SMILE の特典）
 src/app/[slug]/        公開フォーム（edit/ は修正リンク）
 src/app/admin/         管理画面
-src/app/api/           郵便番号検索・個人情報削除の Cron
+src/app/api/           郵便番号検索
 src/lib/               特典の計算・入力チェック・暗号化（crypto.ts）・伏せ字・CSV・メールなど
 db-tests/              素の Postgres で動く DB テスト
 e2e/run.mjs            Playwright の E2E
@@ -91,8 +92,9 @@ e2e/run.mjs            Playwright の E2E
 ```bash
 npm install
 npx supabase start          # ローカルの Supabase（Docker が必要）。migrations と seed.sql が入る
-cp .env.example .env.local  # `npx supabase status` の URL / Publishable key / Secret key を書く
+cp .env.example .env.local  # `npx supabase status` の URL / Publishable key を書く（APP_SERVER_KEY はそのままでよい）
 #   PII_ENCRYPTION_KEY と PII_HASH_KEY は `openssl rand -base64 32` で別々に作る
+#   ローカルでは Google ログインの代わりにパスワードのスタッフを作る（SUPABASE_SECRET_KEY にローカルの Secret key を書く）
 npm run staff:create -- staff@example.com password1234 "鍋島"
 npm run dev                 # http://localhost:3000/2nd-smile と http://localhost:3000/admin
                             # 初回ログイン時に認証アプリの登録画面が出ます
@@ -107,16 +109,20 @@ npm run test:e2e    # E2E（supabase start と npm run build && npm start が動
 npm run typecheck && npm run lint
 ```
 
-## 本番の準備
+## 本番の環境
 
-1. Supabase のプロジェクトを作り、`npx supabase link` → `npx supabase db push` でマイグレーションを流す
-   （seed.sql は本番には流さず、メンバーと公演は管理画面から登録する）
-2. Vercel にこのリポジトリをつなぎ、`.env.example` の環境変数を設定する（暗号化鍵は Sensitive にする）
-   - `CRON_SECRET` を設定すると、`vercel.json` の Cron（毎日 3:00 JST）が個人情報の削除を実行します
-3. Resend で送信元ドメインを認証し、`RESEND_API_KEY` と `MAIL_FROM` を設定する
-4. Cloudflare Turnstile のサイトを作り、2つのキーを設定する
-5. Supabase で新規登録をオフ・TOTP を有効にする（上の「セキュリティ」参照）
-6. `npm run staff:create` でスタッフのアカウントを作る
+| もの | 場所 |
+| --- | --- |
+| DB・ログイン | Supabase プロジェクト「Syotaitokuten」 |
+| 公開 | Vercel プロジェクト「syotaitokuten」（GitHub の `main` に入ると自動で公開） |
+| メール | Resend（送信元 info@cobo.jp） |
+
+本番の環境変数は Vercel に設定済み。`PII_ENCRYPTION_KEY` / `PII_HASH_KEY` / `APP_SERVER_KEY` は Vercel の画面（Settings → Environment Variables）で確認できるので、パスワード管理ツールにも控えておくこと。
+
+`APP_SERVER_KEY` を変えるときは、Vercel の値と DB のハッシュを両方変える:
+`update app_private.server_keys set key_hash = encode(sha256(convert_to('<新しいキー>', 'UTF8')), 'hex') where name = 'app';`
+
+マイグレーションを追加したら `npx supabase link --project-ref <ref>` → `npx supabase db push` で本番に流す。
 
 ## 未対応・要確認
 
@@ -124,3 +130,4 @@ npm run typecheck && npm run lint
 - 1人以上の「限定ポストカード」は seed では「発送」にしています。会場で手渡しする場合は「当日手渡し」に変えてください
 - クリックポストの CSV は「まとめ申込」の列構成（郵便番号・氏名・敬称・住所4行・内容品）に合わせていますが、実際の取り込み画面で一度確認してください
 - ヤマト B2 クラウド・ゆうパックプリントの取込形式は、汎用 CSV を各サービスの取込設定で割り当てて使ってください
+- Cloudflare Turnstile（ボット対策）は未設定です。設定する場合は `NEXT_PUBLIC_TURNSTILE_SITE_KEY` と `TURNSTILE_SECRET_KEY` を Vercel に追加してください（送信回数の制限は設定なしでも効いています）
