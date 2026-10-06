@@ -111,6 +111,9 @@ npm run typecheck && npm run lint
 
 ## 本番の環境
 
+公開までの残りの手順は [docs/DEPLOY.md](docs/DEPLOY.md) を参照。
+
+
 | もの | 場所 |
 | --- | --- |
 | DB・ログイン | Supabase プロジェクト「Syotaitokuten」 |
